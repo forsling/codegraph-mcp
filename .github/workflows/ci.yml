@@ -20,3 +20,7 @@ jobs:
         run: node dist/cli.js index fixtures/basic
       - name: Exercise MCP over stdio
         run: node test/smoke.mjs
+      - name: Self-index repository
+        run: node dist/cli.js index . .self-codegraph.sqlite
+      - name: Dogfood MCP against codegraph itself
+        run: node test/self-dogfood.mjs

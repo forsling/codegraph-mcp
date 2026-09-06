@@ -10,8 +10,12 @@ export const EDGE_TYPES = [
 ] as const;
 export type EdgeType = (typeof EDGE_TYPES)[number];
 
+export type SymbolId = string;
+export type Direction = "in" | "out";
+export type ReferenceAccess = "all" | "read" | "write";
+
 export interface CodeSymbol {
-  id: string;
+  id: SymbolId;
   kind: SymbolKind;
   name: string;
   qualifiedName: string;
@@ -22,9 +26,9 @@ export interface CodeSymbol {
 }
 
 export interface GraphEdge {
-  sourceId: string;
+  sourceId: SymbolId;
   type: EdgeType;
-  targetId: string;
+  targetId: SymbolId;
   provenance: "compiler" | "static-analysis" | "indexer";
   certainty: "exact" | "possible";
   file?: string;
@@ -36,4 +40,34 @@ export interface GraphResult {
   edges: GraphEdge[];
   truncated: boolean;
   matched?: number;
+}
+
+// Semantic request types form the boundary between transports (MCP today) and
+// graph execution (SQLite today). They intentionally describe intent rather
+// than SQL or storage layout, and are not a general-purpose query language.
+export interface SymbolSearchQuery {
+  query: string;
+  kinds?: SymbolKind[];
+  limit: number;
+}
+
+export interface NeighborQuery {
+  symbol: SymbolId;
+  relations: EdgeType[];
+  direction: Direction;
+  limit: number;
+}
+
+export interface ReferenceQuery {
+  symbol: SymbolId;
+  access: ReferenceAccess;
+  limit: number;
+}
+
+export interface PathQuery {
+  from: SymbolId;
+  to: SymbolId;
+  relations: EdgeType[];
+  maxDepth: number;
+  maxPaths: number;
 }

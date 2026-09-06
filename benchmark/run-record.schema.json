@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "codegraph-mcp benchmark run",
+  "type": "object",
+  "required": ["task", "condition", "baseCommit", "model", "success"],
+  "properties": {
+    "task": { "type": "string" },
+    "condition": { "enum": ["filesystem", "graph"] },
+    "baseCommit": { "type": "string" },
+    "model": { "type": "string" },
+    "success": { "type": "boolean" },
+    "toolCalls": { "type": "integer", "minimum": 0 },
+    "sourceTokensBeforeFirstCorrectEdit": { "type": ["integer", "null"], "minimum": 0 },
+    "sourceTokens": { "type": "integer", "minimum": 0 },
+    "graphTokens": { "type": "integer", "minimum": 0 },
+    "totalRetrievalTokens": { "type": "integer", "minimum": 0 },
+    "sourceSymbolsOpened": { "type": "integer", "minimum": 0 },
+    "filesOpened": { "type": "integer", "minimum": 0 },
+    "metricsFile": { "type": ["string", "null"] },
+    "trajectoryFile": { "type": ["string", "null"] },
+    "diffFile": { "type": ["string", "null"] },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

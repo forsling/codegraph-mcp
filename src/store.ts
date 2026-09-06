@@ -10,6 +10,8 @@ import type {
   SymbolSearchQuery,
 } from "./model.js";
 
+export interface IndexedFile { path: string; hash: string; language: string; indexedAt: string; }
+
 export class GraphStore {
   readonly db: Database.Database;
 
@@ -58,6 +60,16 @@ export class GraphStore {
 
   clear(): void { this.db.exec("DELETE FROM edges; DELETE FROM symbols; DELETE FROM files;"); }
 
+  putFile(path: string, hash: string, language: string): void {
+    this.db.prepare(`INSERT OR REPLACE INTO files (path, hash, language, indexed_at) VALUES (?, ?, ?, ?)`)
+      .run(path, hash, language, new Date().toISOString());
+  }
+
+  indexedFiles(): IndexedFile[] {
+    return (this.db.prepare("SELECT path, hash, language, indexed_at FROM files ORDER BY path").all() as any[])
+      .map((row) => ({ path: row.path, hash: row.hash, language: row.language, indexedAt: row.indexed_at }));
+  }
+
   putSymbol(symbol: CodeSymbol): void {
     this.db.prepare(`INSERT OR REPLACE INTO symbols
       (id, kind, name, qualified_name, file, start_line, end_line, signature)
@@ -80,22 +92,13 @@ export class GraphStore {
     const { query, match, kinds, limit } = request;
     const kindClause = kinds?.length ? `AND kind IN (${kinds.map(() => "?").join(",")})` : "";
     if (match === "exact") {
-      const rows = this.db.prepare(`
-        SELECT * FROM symbols
-        WHERE (name = ? OR qualified_name = ?) ${kindClause}
-        ORDER BY CASE WHEN name = ? THEN 0 ELSE 1 END, length(qualified_name)
-        LIMIT ?
-      `).all(query, query, ...(kinds ?? []), query, limit);
+      const rows = this.db.prepare(`SELECT * FROM symbols WHERE (name = ? OR qualified_name = ?) ${kindClause} ORDER BY CASE WHEN name = ? THEN 0 ELSE 1 END, length(qualified_name) LIMIT ?`)
+        .all(query, query, ...(kinds ?? []), query, limit);
       return rows.map((r) => this.mapSymbol(r)!).filter(Boolean);
     }
-
     const pattern = `%${query}%`;
-    const rows = this.db.prepare(`
-      SELECT * FROM symbols
-      WHERE (name LIKE ? OR qualified_name LIKE ?) ${kindClause}
-      ORDER BY CASE WHEN name = ? THEN 0 WHEN name LIKE ? THEN 1 ELSE 2 END, length(qualified_name)
-      LIMIT ?
-    `).all(pattern, pattern, ...(kinds ?? []), query, `${query}%`, limit);
+    const rows = this.db.prepare(`SELECT * FROM symbols WHERE (name LIKE ? OR qualified_name LIKE ?) ${kindClause} ORDER BY CASE WHEN name = ? THEN 0 WHEN name LIKE ? THEN 1 ELSE 2 END, length(qualified_name) LIMIT ?`)
+      .all(pattern, pattern, ...(kinds ?? []), query, `${query}%`, limit);
     return rows.map((r) => this.mapSymbol(r)!).filter(Boolean);
   }
 

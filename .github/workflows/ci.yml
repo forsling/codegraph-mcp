@@ -29,4 +29,8 @@ jobs:
       - name: Self-index repository
         run: node dist/cli.js index . .self-codegraph.sqlite
       - name: Dogfood MCP against codegraph itself
+        env:
+          CODEGRAPH_METRICS_FILE: .dogfood-metrics.jsonl
         run: node test/self-dogfood.mjs
+      - name: Summarize server retrieval telemetry
+        run: node benchmark/summarize-metrics.mjs .dogfood-metrics.jsonl

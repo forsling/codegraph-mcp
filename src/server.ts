@@ -28,6 +28,9 @@ export async function serve(store: GraphStore, projectRoot: string): Promise<voi
   server.registerTool("get_references", { description: "Find functions that read, write, or otherwise reference a symbol.", inputSchema: { symbol: z.string(), access: z.enum(["all", "read", "write"]).default("all"), limit: z.number().int().min(1).max(500).default(100) } },
     async ({ symbol, access, limit }) => json(store.references({ symbol, access, limit })));
 
+  server.registerTool("find_paths", { description: "Find bounded simple paths between two symbols over selected relationship types.", inputSchema: { from: z.string(), to: z.string(), relations: z.array(z.enum(EDGE_TYPES)).min(1).default(["CALLS", "MAY_CALL"]), maxDepth: z.number().int().min(1).max(20).default(8), maxPaths: z.number().int().min(1).max(20).default(5) } },
+    async ({ from, to, relations, maxDepth, maxPaths }) => json(store.findPaths({ from, to, relations: relations as EdgeType[], maxDepth, maxPaths })));
+
   server.registerTool("get_source", { description: "Retrieve source only after graph navigation identifies a relevant symbol.", inputSchema: { symbol: z.string(), view: z.enum(["signature", "body"]).default("body") } },
     async ({ symbol, view }) => {
       const s = store.getSymbol(symbol);

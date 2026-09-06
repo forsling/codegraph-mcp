@@ -13,11 +13,27 @@ const transport = new StdioClientTransport({
 const client = new Client({ name: "codegraph-self-dogfood", version: "0.1.0" });
 await client.connect(transport);
 
+const metrics = {
+  calls: 0,
+  graphBytes: 0,
+  sourceBytes: 0,
+  byTool: {},
+};
+const estimateTokens = (bytes) => Math.ceil(bytes / 4);
+
 const call = async (name, args) => {
   const result = await client.callTool({ name, arguments: args });
   assert.equal(result.isError, undefined);
   assert.ok(Array.isArray(result.content) && result.content[0]?.type === "text");
-  return JSON.parse(result.content[0].text);
+  const text = result.content[0].text;
+  const bytes = Buffer.byteLength(text, "utf8");
+  const bucket = name === "get_source" ? "sourceBytes" : "graphBytes";
+  metrics.calls += 1;
+  metrics[bucket] += bytes;
+  metrics.byTool[name] ??= { calls: 0, bytes: 0 };
+  metrics.byTool[name].calls += 1;
+  metrics.byTool[name].bytes += bytes;
+  return JSON.parse(text);
 };
 
 const exactOne = async (query, kind) => {
@@ -64,6 +80,16 @@ try {
     message: "Self-dogfood MCP test passed",
     structuralQuestions: 4,
     selfSymbols: { serve: serve.id, findPaths: findPaths.id, references: references.id },
+    retrieval: {
+      calls: metrics.calls,
+      graphBytes: metrics.graphBytes,
+      sourceBytes: metrics.sourceBytes,
+      totalBytes: metrics.graphBytes + metrics.sourceBytes,
+      estimatedGraphTokens: estimateTokens(metrics.graphBytes),
+      estimatedSourceTokens: estimateTokens(metrics.sourceBytes),
+      estimatedTotalTokens: estimateTokens(metrics.graphBytes + metrics.sourceBytes),
+      byTool: metrics.byTool,
+    },
   }));
 } finally {
   await transport.close();

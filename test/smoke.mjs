@@ -21,23 +21,49 @@ const call = async (name, args) => {
   return JSON.parse(result.content[0].text);
 };
 
+const findOne = async (query) => {
+  const matches = await call("search_symbols", { query });
+  assert.equal(matches.length, 1, JSON.stringify(matches));
+  return matches[0];
+};
+
 try {
-  const tenantMatches = await call("search_symbols", { query: "currentTenant" });
-  assert.equal(tenantMatches.length, 1);
-  assert.equal(tenantMatches[0].kind, "global");
-  const tenantId = tenantMatches[0].id;
+  const tenant = await findOne("currentTenant");
+  assert.equal(tenant.kind, "global");
 
-  const writes = await call("get_references", { symbol: tenantId, access: "write" });
-  assert.ok(writes.some((x) => x.name === "setCurrentTenant"), JSON.stringify(writes));
+  const writes = await call("get_references", { symbol: tenant.id, access: "write" });
+  assert.ok(writes.nodes.some((x) => x.name === "setCurrentTenant"), JSON.stringify(writes));
+  assert.ok(writes.edges.some((x) => x.type === "WRITES" && x.targetId === tenant.id), JSON.stringify(writes));
 
-  const invoices = await call("search_symbols", { query: "calculateInvoice" });
-  assert.equal(invoices.length, 1);
-  const invoiceId = invoices[0].id;
+  const invoice = await findOne("calculateInvoice");
+  const tax = await findOne("calculateTax");
+  const checkout = await findOne("checkout");
 
-  const callees = await call("get_callees", { symbol: invoiceId });
-  assert.ok(callees.some((x) => x.name === "calculateTax"), JSON.stringify(callees));
+  const callees = await call("get_callees", { symbol: invoice.id });
+  assert.ok(callees.nodes.some((x) => x.name === "calculateTax"), JSON.stringify(callees));
+  assert.ok(callees.edges.some((x) => x.type === "CALLS" && x.targetId === tax.id), JSON.stringify(callees));
 
-  const source = await call("get_source", { symbol: invoiceId, view: "body" });
+  const paths = await call("find_paths", {
+    from: checkout.id,
+    to: tax.id,
+    relations: ["CALLS"],
+    maxDepth: 4,
+    maxPaths: 5,
+  });
+  assert.equal(paths.paths.length, 1, JSON.stringify(paths));
+  assert.deepEqual(paths.paths[0].nodes.map((x) => x.name), ["checkout", "calculateInvoice", "calculateTax"]);
+  assert.deepEqual(paths.paths[0].edges.map((x) => x.type), ["CALLS", "CALLS"]);
+
+  const tooShallow = await call("find_paths", {
+    from: checkout.id,
+    to: tax.id,
+    relations: ["CALLS"],
+    maxDepth: 1,
+    maxPaths: 5,
+  });
+  assert.equal(tooShallow.paths.length, 0);
+
+  const source = await call("get_source", { symbol: invoice.id, view: "body" });
   assert.match(source.source, /currentTenant/);
   assert.match(source.source, /calculateTax/);
 

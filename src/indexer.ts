@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import ts from "typescript";
 import type { CodeSymbol, GraphEdge, SymbolKind } from "./model.js";
@@ -24,6 +25,7 @@ export function indexTypeScriptProject(projectPath: string, store: GraphStore): 
     if (source.isDeclarationFile || !source.fileName.startsWith(root)) continue;
     files++;
     const rel = path.relative(root, source.fileName).replaceAll(path.sep, "/");
+    store.putFile(rel, sha256(source.text), "typescript");
 
     const visit = (node: ts.Node, owner?: string) => {
       const declared = declarationSymbol(node, checker, rel, source);
@@ -129,4 +131,8 @@ function edge(sourceId: string, type: GraphEdge["type"], targetId: string, file:
 
 function lineOf(source: ts.SourceFile, node: ts.Node): number {
   return source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+}
+
+function sha256(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
 }

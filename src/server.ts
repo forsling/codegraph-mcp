@@ -11,22 +11,22 @@ export async function serve(store: GraphStore, projectRoot: string): Promise<voi
   const json = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }] });
 
   server.registerTool("search_symbols", { description: "Find symbols by name without reading source.", inputSchema: { query: z.string(), kinds: z.array(z.enum(SYMBOL_KINDS)).optional(), limit: z.number().int().min(1).max(100).default(20) } },
-    async ({ query, kinds, limit }) => json(store.searchSymbols(query, kinds as SymbolKind[] | undefined, limit)));
+    async ({ query, kinds, limit }) => json(store.searchSymbols({ query, kinds: kinds as SymbolKind[] | undefined, limit })));
 
   server.registerTool("get_symbol", { description: "Get compact metadata for a stable symbol id.", inputSchema: { symbol: z.string() } },
     async ({ symbol }) => json(store.getSymbol(symbol) ?? { error: "symbol_not_found" }));
 
   server.registerTool("get_neighbors", { description: "Traverse direct typed program relationships for a symbol.", inputSchema: { symbol: z.string(), relations: z.array(z.enum(EDGE_TYPES)).min(1), direction: z.enum(["in", "out"]).default("out"), limit: z.number().int().min(1).max(500).default(100) } },
-    async ({ symbol, relations, direction, limit }) => json(store.neighbors(symbol, relations as EdgeType[], direction, limit)));
+    async ({ symbol, relations, direction, limit }) => json(store.neighbors({ symbol, relations: relations as EdgeType[], direction, limit })));
 
   server.registerTool("get_callers", { description: "Find functions that directly call a symbol.", inputSchema: { symbol: z.string(), limit: z.number().int().min(1).max(500).default(100) } },
-    async ({ symbol, limit }) => json(store.neighbors(symbol, ["CALLS", "MAY_CALL"], "in", limit)));
+    async ({ symbol, limit }) => json(store.neighbors({ symbol, relations: ["CALLS", "MAY_CALL"], direction: "in", limit })));
 
   server.registerTool("get_callees", { description: "Find functions directly called by a symbol.", inputSchema: { symbol: z.string(), limit: z.number().int().min(1).max(500).default(100) } },
-    async ({ symbol, limit }) => json(store.neighbors(symbol, ["CALLS", "MAY_CALL"], "out", limit)));
+    async ({ symbol, limit }) => json(store.neighbors({ symbol, relations: ["CALLS", "MAY_CALL"], direction: "out", limit })));
 
   server.registerTool("get_references", { description: "Find functions that read, write, or otherwise reference a symbol.", inputSchema: { symbol: z.string(), access: z.enum(["all", "read", "write"]).default("all"), limit: z.number().int().min(1).max(500).default(100) } },
-    async ({ symbol, access, limit }) => json(store.references(symbol, access, limit)));
+    async ({ symbol, access, limit }) => json(store.references({ symbol, access, limit })));
 
   server.registerTool("get_source", { description: "Retrieve source only after graph navigation identifies a relevant symbol.", inputSchema: { symbol: z.string(), view: z.enum(["signature", "body"]).default("body") } },
     async ({ symbol, view }) => {

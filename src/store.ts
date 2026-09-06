@@ -4,6 +4,8 @@ import type {
   GraphEdge,
   GraphResult,
   NeighborQuery,
+  PathQuery,
+  PathResult,
   ReferenceQuery,
   SymbolSearchQuery,
 } from "./model.js";
@@ -117,6 +119,48 @@ export class GraphStore {
       direction: "in",
       limit: request.limit,
     });
+  }
+
+  findPaths(request: PathQuery): PathResult {
+    const { from, to, relations, maxDepth, maxPaths } = request;
+    if (!relations.length || maxDepth < 1 || maxPaths < 1) return { paths: [], truncated: false };
+    if (from === to) {
+      const symbol = this.getSymbol(from);
+      return { paths: symbol ? [{ nodes: [symbol], edges: [] }] : [], truncated: false };
+    }
+
+    const placeholders = relations.map(() => "?").join(",");
+    const rows = this.db.prepare(`
+      WITH RECURSIVE walk(current_id, depth, node_path, edge_rowids) AS (
+        SELECT ?, 0, ? || '|', ''
+        UNION ALL
+        SELECT e.target_id,
+               walk.depth + 1,
+               walk.node_path || e.target_id || '|',
+               CASE WHEN walk.edge_rowids = '' THEN CAST(e.rowid AS TEXT)
+                    ELSE walk.edge_rowids || ',' || CAST(e.rowid AS TEXT) END
+        FROM walk
+        JOIN edges e ON e.source_id = walk.current_id
+        WHERE walk.depth < ?
+          AND e.edge_type IN (${placeholders})
+          AND instr(walk.node_path, e.target_id || '|') = 0
+      )
+      SELECT node_path, edge_rowids
+      FROM walk
+      WHERE current_id = ? AND depth > 0
+      ORDER BY depth ASC
+      LIMIT ?
+    `).all(from, `${from}|`, maxDepth, ...relations, to, maxPaths + 1) as Array<{ node_path: string; edge_rowids: string }>;
+
+    const truncated = rows.length > maxPaths;
+    const paths = rows.slice(0, maxPaths).map((row) => {
+      const ids = row.node_path.split("|").filter(Boolean);
+      const nodes = ids.map((id) => this.getSymbol(id)).filter((x): x is CodeSymbol => Boolean(x));
+      const edgeRowids = row.edge_rowids.split(",").filter(Boolean).map(Number);
+      const edges = edgeRowids.map((rowid) => this.mapEdge(this.db.prepare("SELECT * FROM edges WHERE rowid = ?").get(rowid)));
+      return { nodes, edges };
+    });
+    return { paths, truncated };
   }
 
   close(): void { this.db.close(); }

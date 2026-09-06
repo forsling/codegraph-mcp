@@ -42,6 +42,16 @@ export interface GraphResult {
   matched?: number;
 }
 
+export interface GraphPath {
+  nodes: CodeSymbol[];
+  edges: GraphEdge[];
+}
+
+export interface PathResult {
+  paths: GraphPath[];
+  truncated: boolean;
+}
+
 // Semantic request types form the boundary between transports (MCP today) and
 // graph execution (SQLite today). They intentionally describe intent rather
 // than SQL or storage layout, and are not a general-purpose query language.

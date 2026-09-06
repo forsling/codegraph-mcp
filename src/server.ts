@@ -10,8 +10,8 @@ export async function serve(store: GraphStore, projectRoot: string): Promise<voi
   const server = new McpServer({ name: "codegraph-mcp", version: "0.1.0" });
   const json = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value) }] });
 
-  server.registerTool("search_symbols", { description: "Find symbols by name without reading source.", inputSchema: { query: z.string(), kinds: z.array(z.enum(SYMBOL_KINDS)).optional(), limit: z.number().int().min(1).max(100).default(20) } },
-    async ({ query, kinds, limit }) => json(store.searchSymbols({ query, kinds: kinds as SymbolKind[] | undefined, limit })));
+  server.registerTool("search_symbols", { description: "Find symbols by exact name/qualified name or substring without reading source.", inputSchema: { query: z.string(), match: z.enum(["exact", "contains"]).default("contains"), kinds: z.array(z.enum(SYMBOL_KINDS)).optional(), limit: z.number().int().min(1).max(100).default(20) } },
+    async ({ query, match, kinds, limit }) => json(store.searchSymbols({ query, match, kinds: kinds as SymbolKind[] | undefined, limit })));
 
   server.registerTool("get_symbol", { description: "Get compact metadata for a stable symbol id.", inputSchema: { symbol: z.string() } },
     async ({ symbol }) => json(store.getSymbol(symbol) ?? { error: "symbol_not_found" }));

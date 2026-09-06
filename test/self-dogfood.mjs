@@ -13,12 +13,7 @@ const transport = new StdioClientTransport({
 const client = new Client({ name: "codegraph-self-dogfood", version: "0.1.0" });
 await client.connect(transport);
 
-const metrics = {
-  calls: 0,
-  graphBytes: 0,
-  sourceBytes: 0,
-  byTool: {},
-};
+const metrics = { calls: 0, graphBytes: 0, sourceBytes: 0, byTool: {} };
 const estimateTokens = (bytes) => Math.ceil(bytes / 4);
 
 const call = async (name, args) => {
@@ -37,22 +32,21 @@ const call = async (name, args) => {
 };
 
 const exactOne = async (query, kind) => {
-  const matches = await call("search_symbols", {
-    query,
-    match: "exact",
-    ...(kind ? { kinds: [kind] } : {}),
-  });
+  const matches = await call("search_symbols", { query, match: "exact", ...(kind ? { kinds: [kind] } : {}) });
   assert.equal(matches.length, 1, `Expected one exact ${kind ?? "symbol"} match for ${query}: ${JSON.stringify(matches)}`);
   return matches[0];
 };
 
 try {
+  const index = await call("get_index_status", {});
+  assert.equal(index.status, "current", JSON.stringify(index));
+  assert.equal(index.staleFiles.length, 0);
+  assert.equal(index.missingFiles.length, 0);
+
   const findPaths = await exactOne("findPaths", "method");
   assert.equal(findPaths.file, "src/store.ts");
-
   const references = await exactOne("references", "method");
   assert.equal(references.file, "src/store.ts");
-
   const serve = await exactOne("serve", "function");
   assert.equal(serve.file, "src/server.ts");
 
@@ -60,25 +54,20 @@ try {
   assert.ok(callers.nodes.some((node) => node.id === serve.id), JSON.stringify(callers));
   assert.ok(callers.edges.some((edge) => edge.type === "CALLS" && edge.sourceId === serve.id && edge.targetId === findPaths.id), JSON.stringify(callers));
 
-  const paths = await call("find_paths", {
-    from: serve.id,
-    to: findPaths.id,
-    relations: ["CALLS"],
-    maxDepth: 3,
-    maxPaths: 5,
-  });
+  const paths = await call("find_paths", { from: serve.id, to: findPaths.id, relations: ["CALLS"], maxDepth: 3, maxPaths: 5 });
   assert.ok(paths.paths.length >= 1, JSON.stringify(paths));
   assert.equal(paths.paths[0].nodes[0].id, serve.id);
   assert.equal(paths.paths[0].nodes.at(-1).id, findPaths.id);
 
   const source = await call("get_source", { symbol: findPaths.id, view: "body" });
   assert.equal(source.file, "src/store.ts");
+  assert.equal(source.indexStatus, "current");
   assert.match(source.source, /WITH RECURSIVE walk/);
   assert.match(source.source, /maxDepth/);
 
   console.log(JSON.stringify({
     message: "Self-dogfood MCP test passed",
-    structuralQuestions: 4,
+    structuralQuestions: 5,
     selfSymbols: { serve: serve.id, findPaths: findPaths.id, references: references.id },
     retrieval: {
       calls: metrics.calls,

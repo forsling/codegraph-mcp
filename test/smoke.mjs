@@ -7,10 +7,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = path.join(root, "fixtures/basic");
 const db = path.join(fixture, ".codegraph.sqlite");
-const transport = new StdioClientTransport({
-  command: process.execPath,
-  args: [path.join(root, "dist/cli.js"), "serve", fixture, db],
-});
+const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(root, "dist/cli.js"), "serve", fixture, db] });
 const client = new Client({ name: "codegraph-smoke", version: "0.1.0" });
 await client.connect(transport);
 
@@ -22,15 +19,18 @@ const call = async (name, args) => {
 };
 
 const findOne = async (query) => {
-  const matches = await call("search_symbols", { query });
+  const matches = await call("search_symbols", { query, match: "exact" });
   assert.equal(matches.length, 1, JSON.stringify(matches));
   return matches[0];
 };
 
 try {
+  const contains = await call("search_symbols", { query: "currentTenant", match: "contains" });
+  assert.ok(contains.some((x) => x.name === "currentTenant"));
+  assert.ok(contains.some((x) => x.name === "setCurrentTenant"));
+
   const tenant = await findOne("currentTenant");
   assert.equal(tenant.kind, "global");
-
   const writes = await call("get_references", { symbol: tenant.id, access: "write" });
   assert.ok(writes.nodes.some((x) => x.name === "setCurrentTenant"), JSON.stringify(writes));
   assert.ok(writes.edges.some((x) => x.type === "WRITES" && x.targetId === tenant.id), JSON.stringify(writes));
@@ -38,35 +38,20 @@ try {
   const invoice = await findOne("calculateInvoice");
   const tax = await findOne("calculateTax");
   const checkout = await findOne("checkout");
-
   const callees = await call("get_callees", { symbol: invoice.id });
   assert.ok(callees.nodes.some((x) => x.name === "calculateTax"), JSON.stringify(callees));
   assert.ok(callees.edges.some((x) => x.type === "CALLS" && x.targetId === tax.id), JSON.stringify(callees));
 
-  const paths = await call("find_paths", {
-    from: checkout.id,
-    to: tax.id,
-    relations: ["CALLS"],
-    maxDepth: 4,
-    maxPaths: 5,
-  });
+  const paths = await call("find_paths", { from: checkout.id, to: tax.id, relations: ["CALLS"], maxDepth: 4, maxPaths: 5 });
   assert.equal(paths.paths.length, 1, JSON.stringify(paths));
   assert.deepEqual(paths.paths[0].nodes.map((x) => x.name), ["checkout", "calculateInvoice", "calculateTax"]);
   assert.deepEqual(paths.paths[0].edges.map((x) => x.type), ["CALLS", "CALLS"]);
-
-  const tooShallow = await call("find_paths", {
-    from: checkout.id,
-    to: tax.id,
-    relations: ["CALLS"],
-    maxDepth: 1,
-    maxPaths: 5,
-  });
+  const tooShallow = await call("find_paths", { from: checkout.id, to: tax.id, relations: ["CALLS"], maxDepth: 1, maxPaths: 5 });
   assert.equal(tooShallow.paths.length, 0);
 
   const source = await call("get_source", { symbol: invoice.id, view: "body" });
   assert.match(source.source, /currentTenant/);
   assert.match(source.source, /calculateTax/);
-
   console.log("MCP smoke test passed");
 } finally {
   await transport.close();

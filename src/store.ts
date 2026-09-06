@@ -1,5 +1,12 @@
 import Database from "better-sqlite3";
-import type { CodeSymbol, EdgeType, GraphEdge, GraphResult, SymbolKind } from "./model.js";
+import type {
+  CodeSymbol,
+  GraphEdge,
+  GraphResult,
+  NeighborQuery,
+  ReferenceQuery,
+  SymbolSearchQuery,
+} from "./model.js";
 
 export class GraphStore {
   readonly db: Database.Database;
@@ -71,7 +78,8 @@ export class GraphStore {
     return this.mapSymbol(this.db.prepare("SELECT * FROM symbols WHERE id = ?").get(id));
   }
 
-  searchSymbols(query: string, kinds?: SymbolKind[], limit = 20): CodeSymbol[] {
+  searchSymbols(request: SymbolSearchQuery): CodeSymbol[] {
+    const { query, kinds, limit } = request;
     const pattern = `%${query}%`;
     const kindClause = kinds?.length ? `AND kind IN (${kinds.map(() => "?").join(",")})` : "";
     const rows = this.db.prepare(`
@@ -83,12 +91,13 @@ export class GraphStore {
     return rows.map((r) => this.mapSymbol(r)!).filter(Boolean);
   }
 
-  neighbors(id: string, relations: EdgeType[], direction: "in" | "out", limit = 100): GraphResult {
+  neighbors(request: NeighborQuery): GraphResult {
+    const { symbol, relations, direction, limit } = request;
     if (!relations.length) return { nodes: [], edges: [], truncated: false };
     const placeholders = relations.map(() => "?").join(",");
     const column = direction === "out" ? "source_id" : "target_id";
     const rows = this.db.prepare(`SELECT * FROM edges WHERE ${column} = ? AND edge_type IN (${placeholders}) LIMIT ?`)
-      .all(id, ...relations, limit + 1);
+      .all(symbol, ...relations, limit + 1);
     const truncated = rows.length > limit;
     const edges = rows.slice(0, limit).map((r) => this.mapEdge(r));
     const nodeIds = new Set(edges.flatMap((e) => [e.sourceId, e.targetId]));
@@ -96,9 +105,18 @@ export class GraphStore {
     return { nodes, edges, truncated };
   }
 
-  references(id: string, access: "all" | "read" | "write", limit = 100): GraphResult {
-    const relations: EdgeType[] = access === "read" ? ["READS"] : access === "write" ? ["WRITES"] : ["REFERENCES", "READS", "WRITES"];
-    return this.neighbors(id, relations, "in", limit);
+  references(request: ReferenceQuery): GraphResult {
+    const relations = request.access === "read"
+      ? ["READS"] as const
+      : request.access === "write"
+        ? ["WRITES"] as const
+        : ["REFERENCES", "READS", "WRITES"] as const;
+    return this.neighbors({
+      symbol: request.symbol,
+      relations: [...relations],
+      direction: "in",
+      limit: request.limit,
+    });
   }
 
   close(): void { this.db.close(); }

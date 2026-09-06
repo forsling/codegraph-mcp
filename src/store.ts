@@ -56,24 +56,20 @@ export class GraphStore {
     `);
   }
 
-  clear(): void {
-    this.db.exec("DELETE FROM edges; DELETE FROM symbols; DELETE FROM files;");
-  }
+  clear(): void { this.db.exec("DELETE FROM edges; DELETE FROM symbols; DELETE FROM files;"); }
 
   putSymbol(symbol: CodeSymbol): void {
-    this.db.prepare(`
-      INSERT OR REPLACE INTO symbols
+    this.db.prepare(`INSERT OR REPLACE INTO symbols
       (id, kind, name, qualified_name, file, start_line, end_line, signature)
-      VALUES (@id, @kind, @name, @qualifiedName, @file, @startLine, @endLine, @signature)
-    `).run({ ...symbol, signature: symbol.signature ?? null });
+      VALUES (@id, @kind, @name, @qualifiedName, @file, @startLine, @endLine, @signature)`)
+      .run({ ...symbol, signature: symbol.signature ?? null });
   }
 
   putEdge(edge: GraphEdge): void {
-    this.db.prepare(`
-      INSERT OR IGNORE INTO edges
+    this.db.prepare(`INSERT OR IGNORE INTO edges
       (source_id, edge_type, target_id, provenance, certainty, file, line)
-      VALUES (@sourceId, @type, @targetId, @provenance, @certainty, @file, @line)
-    `).run({ ...edge, file: edge.file ?? null, line: edge.line ?? null });
+      VALUES (@sourceId, @type, @targetId, @provenance, @certainty, @file, @line)`)
+      .run({ ...edge, file: edge.file ?? null, line: edge.line ?? null });
   }
 
   getSymbol(id: string): CodeSymbol | undefined {
@@ -81,9 +77,19 @@ export class GraphStore {
   }
 
   searchSymbols(request: SymbolSearchQuery): CodeSymbol[] {
-    const { query, kinds, limit } = request;
-    const pattern = `%${query}%`;
+    const { query, match, kinds, limit } = request;
     const kindClause = kinds?.length ? `AND kind IN (${kinds.map(() => "?").join(",")})` : "";
+    if (match === "exact") {
+      const rows = this.db.prepare(`
+        SELECT * FROM symbols
+        WHERE (name = ? OR qualified_name = ?) ${kindClause}
+        ORDER BY CASE WHEN name = ? THEN 0 ELSE 1 END, length(qualified_name)
+        LIMIT ?
+      `).all(query, query, ...(kinds ?? []), query, limit);
+      return rows.map((r) => this.mapSymbol(r)!).filter(Boolean);
+    }
+
+    const pattern = `%${query}%`;
     const rows = this.db.prepare(`
       SELECT * FROM symbols
       WHERE (name LIKE ? OR qualified_name LIKE ?) ${kindClause}
@@ -98,8 +104,7 @@ export class GraphStore {
     if (!relations.length) return { nodes: [], edges: [], truncated: false };
     const placeholders = relations.map(() => "?").join(",");
     const column = direction === "out" ? "source_id" : "target_id";
-    const rows = this.db.prepare(`SELECT * FROM edges WHERE ${column} = ? AND edge_type IN (${placeholders}) LIMIT ?`)
-      .all(symbol, ...relations, limit + 1);
+    const rows = this.db.prepare(`SELECT * FROM edges WHERE ${column} = ? AND edge_type IN (${placeholders}) LIMIT ?`).all(symbol, ...relations, limit + 1);
     const truncated = rows.length > limit;
     const edges = rows.slice(0, limit).map((r) => this.mapEdge(r));
     const nodeIds = new Set(edges.flatMap((e) => [e.sourceId, e.targetId]));
@@ -108,17 +113,8 @@ export class GraphStore {
   }
 
   references(request: ReferenceQuery): GraphResult {
-    const relations = request.access === "read"
-      ? ["READS"] as const
-      : request.access === "write"
-        ? ["WRITES"] as const
-        : ["REFERENCES", "READS", "WRITES"] as const;
-    return this.neighbors({
-      symbol: request.symbol,
-      relations: [...relations],
-      direction: "in",
-      limit: request.limit,
-    });
+    const relations = request.access === "read" ? ["READS"] as const : request.access === "write" ? ["WRITES"] as const : ["REFERENCES", "READS", "WRITES"] as const;
+    return this.neighbors({ symbol: request.symbol, relations: [...relations], direction: "in", limit: request.limit });
   }
 
   findPaths(request: PathQuery): PathResult {
@@ -128,30 +124,18 @@ export class GraphStore {
       const symbol = this.getSymbol(from);
       return { paths: symbol ? [{ nodes: [symbol], edges: [] }] : [], truncated: false };
     }
-
     const placeholders = relations.map(() => "?").join(",");
     const rows = this.db.prepare(`
       WITH RECURSIVE walk(current_id, depth, node_path, edge_rowids) AS (
         SELECT ?, 0, ? || '|', ''
         UNION ALL
-        SELECT e.target_id,
-               walk.depth + 1,
-               walk.node_path || e.target_id || '|',
-               CASE WHEN walk.edge_rowids = '' THEN CAST(e.rowid AS TEXT)
-                    ELSE walk.edge_rowids || ',' || CAST(e.rowid AS TEXT) END
-        FROM walk
-        JOIN edges e ON e.source_id = walk.current_id
-        WHERE walk.depth < ?
-          AND e.edge_type IN (${placeholders})
-          AND instr(walk.node_path, e.target_id || '|') = 0
+        SELECT e.target_id, walk.depth + 1, walk.node_path || e.target_id || '|',
+          CASE WHEN walk.edge_rowids = '' THEN CAST(e.rowid AS TEXT) ELSE walk.edge_rowids || ',' || CAST(e.rowid AS TEXT) END
+        FROM walk JOIN edges e ON e.source_id = walk.current_id
+        WHERE walk.depth < ? AND e.edge_type IN (${placeholders}) AND instr(walk.node_path, e.target_id || '|') = 0
       )
-      SELECT node_path, edge_rowids
-      FROM walk
-      WHERE current_id = ? AND depth > 0
-      ORDER BY depth ASC
-      LIMIT ?
+      SELECT node_path, edge_rowids FROM walk WHERE current_id = ? AND depth > 0 ORDER BY depth ASC LIMIT ?
     `).all(from, `${from}|`, maxDepth, ...relations, to, maxPaths + 1) as Array<{ node_path: string; edge_rowids: string }>;
-
     const truncated = rows.length > maxPaths;
     const paths = rows.slice(0, maxPaths).map((row) => {
       const ids = row.node_path.split("|").filter(Boolean);

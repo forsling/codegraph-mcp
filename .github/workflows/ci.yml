@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - run: npm run check
+      - run: npm run build
+      - name: Index fixture
+        run: node dist/cli.js index fixtures/basic
+      - name: Exercise MCP over stdio
+        run: node test/smoke.mjs

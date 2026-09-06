@@ -13,6 +13,7 @@ export type EdgeType = (typeof EDGE_TYPES)[number];
 export type SymbolId = string;
 export type Direction = "in" | "out";
 export type ReferenceAccess = "all" | "read" | "write";
+export type SymbolMatch = "exact" | "contains";
 
 export interface CodeSymbol {
   id: SymbolId;
@@ -57,6 +58,7 @@ export interface PathResult {
 // than SQL or storage layout, and are not a general-purpose query language.
 export interface SymbolSearchQuery {
   query: string;
+  match: SymbolMatch;
   kinds?: SymbolKind[];
   limit: number;
 }
